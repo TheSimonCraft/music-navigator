@@ -4,4 +4,4 @@ class UnknownUserException(Exception):
         self.user_id = user_id if user_id is not None else "Unknown"
         self.message = message if message is not None else f"User with username \"{self.username}\" and ID \"{self.user_id}\" could not be found or doesn't exist"
         
-        super().__init__(message = self.message)
+        super().__init__(self.message)

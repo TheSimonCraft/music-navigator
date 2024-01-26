@@ -8,4 +8,4 @@ class UnavailableUsernameException(Exception):
         self.username = username
         self.message = message if message is not None else f"Username \"{self.username}\" is not available!"
         
-        super().__init__(message=self.message)
+        super().__init__(self.message)
