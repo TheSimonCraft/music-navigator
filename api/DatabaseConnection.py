@@ -5,11 +5,10 @@ import bcrypt
 import secrets
 import base64
 
-from Exceptions import *
+from Exceptions.Database import *
+
 
 class DatabaseConnection:
-
-
 
     def __init__(self):
         load_dotenv()
@@ -20,17 +19,17 @@ class DatabaseConnection:
             user=os.environ.get('PG_USER'),
             password=os.environ.get('PG_PASSWORD'),
             database=os.environ.get('PG_DATABASE'),
-            sslmode = 'prefer'
+            sslmode='prefer'
         )
         self.connection.autocommit = False
         self.cursor = self.connection.cursor()
-
 
     def setup(self):
         self.cursor.execute(open("../Database/music_navigator_db_setup.sql", 'r').read())
         self.connection.commit()
 
-    def __fetch_many(self, table: str, count: int = 10, failed_exception: Exception = None, *fetch, **selection) -> list:
+    def __fetch_many(self, table: str, count: int = 10, failed_exception: Exception = None, *fetch,
+                     **selection) -> list:
         """
         A basic function to fetch multiple sets of values from a database
         :param table: The table to fetch from
@@ -105,12 +104,14 @@ class DatabaseConnection:
         :param requires_teacher: Whether the action requires the user to be a teacher
         :return: Whether the user is permitted to do that action
         """
-        user_id, is_teacher = self.__fetch("users", UnknownUserException(username), "user_id", "is_teacher", username=username)
+        user_id, is_teacher = self.__fetch("users", UnknownUserException(username), "user_id", "is_teacher",
+                                           username=username)
         session_user_id, = self.__fetch("sessions", InvalidSessionException(token), "user_id", token=token)
         self.connection.commit()
         if user_id == session_user_id and (not requires_teacher or is_teacher):
             return True
-        else: return False
+        else:
+            return False
 
     def authenticate(self, username, password) -> bool:
         """
@@ -122,8 +123,10 @@ class DatabaseConnection:
 
         self.cursor.execute("SELECT password, salt FROM users WHERE username=%s", (username,))
         t = self.__fetch("users", None, "password", "salt", username=username)
-        if t is None: return False
-        else: db_pwhash, salt = t
+        if t is None:
+            return False
+        else:
+            db_pwhash, salt = t
         pwhash = bcrypt.hashpw(password.encode('ascii'), salt.encode('ascii'))
         if pwhash.decode("ascii") != db_pwhash: return False
         self.connection.commit()
@@ -155,8 +158,10 @@ class DatabaseConnection:
         pwhash = bcrypt.hashpw(password=password_bytes, salt=salt).decode('ascii')
         try:
             salt = salt.decode('ascii')
-            self.cursor.execute("INSERT INTO users(username, password, salt, is_teacher) VALUES (%s, %s, %s, %s)", (username, pwhash, salt, is_teacher))
+            self.cursor.execute("INSERT INTO users(username, password, salt, is_teacher) VALUES (%s, %s, %s, %s)",
+                                (username, pwhash, salt, is_teacher))
         except psycopg2.errors.UniqueViolation:
+            self.connection.commit()
             raise UnavailableUsernameException(username)
         finally:
             self.connection.commit()
@@ -172,7 +177,8 @@ class DatabaseConnection:
         """
         user_id, = self.__fetch("sessions", InvalidSessionException(token=token), "user_id", token=token)
 
-        db_username, db_pwhash, salt = self.__fetch("users", UnknownUserException(user_id=user_id), "username", "password", "salt", user_id=user_id)
+        db_username, db_pwhash, salt = self.__fetch("users", UnknownUserException(user_id=user_id), "username",
+                                                    "password", "salt", user_id=user_id)
 
         pwhash = bcrypt.hashpw(password.encode('ascii'), salt.encode('ascii')).decode('ascii')
         if pwhash != db_pwhash or username != db_username:
@@ -180,7 +186,8 @@ class DatabaseConnection:
             raise AuthenticationFailedException(username=username, password=password)
         self.connection.commit()
         self.delete_all_songs(token)
-        self.cursor.execute("DELETE FROM teacher_student_rels WHERE teacher_id = %s OR student_id = %s", (user_id, user_id))
+        self.cursor.execute("DELETE FROM teacher_student_rels WHERE teacher_id = %s OR student_id = %s",
+                            (user_id, user_id))
         self.cursor.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
         self.cursor.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
         self.connection.commit()
@@ -238,9 +245,22 @@ class DatabaseConnection:
             raise AuthenticationFailedException(username, old_password)
         salt = bcrypt.gensalt()
         new_pw_hash = bcrypt.hashpw(new_password.encode('ascii'), salt)
-        self.cursor.execute("UPDATE users SET password=%s, salt=%s WHERE user_id = %s", (new_pw_hash.decode('ascii'), salt.decode('ascii'), user_id))
+        self.cursor.execute("UPDATE users SET password=%s, salt=%s WHERE user_id = %s",
+                            (new_pw_hash.decode('ascii'), salt.decode('ascii'), user_id))
         self.connection.commit()
 
+    def is_teacher(self, token: str) -> bool:
+        """
+        A basic function to check whether a user is a teacher
+        :param token: The users session token
+        :return: Whether the student is a teacher
+        """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, False):
+            self.connection.commit()
+            raise AuthenticationFailedException(username)
+        return self.authorize(username, token, True)
 
     # ----- SONGS -----
 
@@ -256,7 +276,8 @@ class DatabaseConnection:
         return result
 
     def has_access(self, song_id: int, user_id: int) -> bool:
-        result = self.__fetch("student_song_rels", None, "*", song_id=song_id, student_id=user_id) is not None or self.is_owner(song_id, user_id)
+        result = self.__fetch("student_song_rels", None, "*", song_id=song_id,
+                              student_id=user_id) is not None or self.is_owner(song_id, user_id)
         self.connection.commit()
         return result
 
@@ -290,7 +311,7 @@ class DatabaseConnection:
     def update_song(self, song_id: int, new_title: str, token: str):
         """
         A basic function to update a songs title
-        :param song_id: The song's ID
+        :param song_id: The songs ID
         :param new_title: The title the song is supposed to have
         :param token: The users session token
         :return: None
@@ -310,8 +331,8 @@ class DatabaseConnection:
     def delete_song(self, song_id: int, token: str):
         """
         A basic function to delete a single song
-        :param song_id: The song's ID
-        :param token: The user's session token
+        :param song_id: The songs ID
+        :param token: The users session token
         :return: None
         """
         username = self.get_session_username(token)
@@ -326,7 +347,7 @@ class DatabaseConnection:
     def delete_all_songs(self, token: str):
         """
         A basic function to delete all songs of a specified user
-        :param token: The user's session token
+        :param token: The users session token
         :return: None
         """
         username = self.get_session_username(token)
@@ -342,8 +363,8 @@ class DatabaseConnection:
     def fetch_song(self, song_id: int, token: str) -> str:
         """
         A basic function to retrieve a Base64 Encoded MusicXML-File
-        :param song_id:
-        :param token:
+        :param song_id: The songs ID
+        :param token: The users session token
         :return:
         """
         username = self.get_session_username(token)
@@ -357,7 +378,8 @@ class DatabaseConnection:
         if not os.path.isfile(path):
             self.connection.commit()
             raise UnavailableResourceException("Song", song_id)
-        with open(path, 'r') as f: result = base64.b64encode(f.read().encode('ascii'))
+        with open(path, 'r') as f:
+            result = base64.b64encode(f.read().encode('ascii'))
         self.connection.commit()
         return result.decode('ascii')
 
@@ -386,7 +408,8 @@ class DatabaseConnection:
         """
         username = self.get_session_username(token)
         user_id = self.get_user_id(username)
-        result = self.__fetch_many("songs", 0, UnavailableResourceException("Song"), "song_id", "song_name", teacher_id=user_id)
+        result = self.__fetch_many("songs", 0, UnavailableResourceException("Song"), "song_id", "song_name",
+                                   teacher_id=user_id)
         songs = {}
         for key, value in result: songs[key] = value
         self.connection.commit()
@@ -405,12 +428,13 @@ class DatabaseConnection:
         song_ids.append(self.__fetch_many("student_song_rels", 0, None, "song_id", student_id=user_id))
         result = {}
         for song_id in song_ids:
-            result[song_id] = self.__fetch("songs", UnavailableResourceException("Song", song_id), "song_name", song_id = song_id)
+            result[song_id] = self.__fetch("songs", UnavailableResourceException("Song", song_id), "song_name",
+                                           song_id=song_id)
         self.connection.commit()
         return result
 
     # ----- Students -----
-    def check_is_student(self, student_id: int, teacher_id: int) -> bool:
+    def is_student(self, student_id: int, teacher_id: int) -> bool:
         """
         A basic function to check whether a user is a teachers student
         :param student_id: The ID of the student to check
@@ -421,6 +445,37 @@ class DatabaseConnection:
         result = True if self.cursor.rowcount > 0 else False
         self.connection.commit()
         return result
+
+    def join_teacher(self, teacher_id: int, token: str):
+        """
+        A basic function to create a teacher student relation
+        :param teacher_id: The teachers user_id
+        :param token: The students session token
+        :return: None
+        """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, False):
+            self.connection.commit()
+            raise AuthorizationFailedException(username, user_id, None, False)
+        self.cursor.execute("DELETE FROM teacher_student_rels WHERE student_id = %s", (user_id,))
+        self.cursor.execute("INSERT INTO teacher_student_rels (teacher_id, student_id) VALUES %s, %s",
+                            (teacher_id, user_id))
+        self.connection.commit()
+
+    def leave_teacher(self, token: str):
+        """
+        A basic function to end a teacher student relation
+        :param token: The students session token
+        :return: None
+        """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, False):
+            self.connection.commit()
+            raise AuthorizationFailedException(username, user_id, None, False)
+        self.cursor.execute("DELETE FROM teacher_student_rels WHERE student_id = %s", (user_id,))
+        self.connection.commit()
 
     def remove_student(self, student_id: int, token: str):
         """
@@ -434,8 +489,9 @@ class DatabaseConnection:
         if not self.authorize(username, token, True):
             self.connection.commit()
             raise AuthorizationFailedException(username, user_id, None, True)
-
-        self.cursor.execute("DELETE FROM teacher_student_rels WHERE teacher_id = %s AND student_id = %s", (user_id, student_id,))
+        self.revoke_by_student(student_id, token)
+        self.cursor.execute("DELETE FROM teacher_student_rels WHERE teacher_id = %s AND student_id = %s",
+                            (user_id, student_id,))
         self.connection.commit()
 
     def remove_all_students(self, token: str):
@@ -449,8 +505,8 @@ class DatabaseConnection:
         if not self.authorize(username, token, True):
             self.connection.commit()
             raise AuthorizationFailedException(username, user_id, None, True)
-
-        self.cursor.execute("DELETE FROM teacher_student_rels WHERE teacher_id = %s", (user_id,))
+        for student_id in self.fetch_all_students(token):
+            self.remove_student(student_id, token)
         self.connection.commit()
 
     def fetch_student_name(self, student_id: int, token: str) -> str:
@@ -465,7 +521,7 @@ class DatabaseConnection:
         if not self.authorize(username, token, True):
             self.connection.commit()
             raise AuthorizationFailedException(username, user_id, None, True)
-        if not self.check_is_student(student_id, user_id):
+        if not self.is_student(student_id, user_id):
             self.connection.commit()
             raise StudentNotFoundException(student_id, user_id)
         result, = self.__fetch("users", StudentNotFoundException(student_id, user_id), "username", user_id=student_id)
@@ -493,15 +549,15 @@ class DatabaseConnection:
     def check_share_permission(self, teacher_id: int, student_id: int, song_id: int) -> bool:
         """
         A basic function to check whether the teacher is permitted to share a song with a student
-        :param teacher_id: The teacher's user ID
-        :param student_id: The student's user ID
-        :param song_id: The song's ID
+        :param teacher_id: The teachers user ID
+        :param student_id: The students user ID
+        :param song_id: The songs ID
         :return: Whether the teacher is permitted to share the song, throws exception if user is not his student
         """
         if not self.is_owner(song_id, teacher_id):
             self.connection.commit()
             return False
-        if not self.check_is_student(student_id, teacher_id):
+        if not self.is_student(student_id, teacher_id):
             self.connection.commit()
             raise StudentNotFoundException(student_id, teacher_id)
         return True
@@ -509,9 +565,9 @@ class DatabaseConnection:
     def add_share(self, student_id: int, song_id: int, token: str):
         """
         A basic function to share  a song with a student
-        :param student_id: The student's user ID
-        :param song_id: The song's ID
-        :param token: The teacher's session token
+        :param student_id: The students user ID
+        :param song_id: The songs ID
+        :param token: The teachers session token
         :return: None
         """
         username = self.get_session_username(token)
@@ -528,22 +584,67 @@ class DatabaseConnection:
     def revoke_share(self, student_id: int, song_id: int, token: str):
         """
         A basic function to revoke a song share
-        :param student_id: The student's user ID
-        :param song_id: The song's ID
-        :param token: The teacher's session token
+        :param student_id: The students user ID
+        :param song_id: The songs ID
+        :param token: The teachers session token
         :return: None
         """
         username = self.get_session_username(token)
         user_id = self.get_user_id(username)
-        if not self.authorize(username, token, True).
+        if not self.authorize(username, token, True):
             self.connection.commit()
             raise AuthorizationFailedException(username, user_id, None, True)
+        if not self.is_owner(song_id, user_id):
+            self.connection.commit()
+            raise AccessDeniedException("Song", song_id, user_id, True)
+        if not self.is_student(student_id, user_id):
+            self.connection.commit()
+            raise StudentNotFoundException(student_id, user_id)
+        self.cursor.execute("DELETE FROM student_song_rels WHERE student_id = %s AND song_id = %s",
+                            (student_id, song_id))
+        self.connection.commit()
+
+    def revoke_by_student(self, student_id: int, token: str):
+        """
+        A basic function to revoke all song shares with a student
+        :param student_id: The students user ID
+        :param token: The teachers session token
+        :return: None
+        """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, True):
+            self.connection.commit()
+            raise AuthorizationFailedException(username, user_id, None, True)
+        if not self.is_student(student_id, user_id):
+            self.connection.commit()
+            raise StudentNotFoundException(student_id, user_id)
+        self.cursor.execute("DELETE FROM student_song_rels WHERE student_id = %s", (student_id,))
+        self.connection.commit()
+
+    def revoke_by_song(self, song_id: int, token: str):
+        """
+        A basic function to revoke all shares of a song
+        :param song_id: The songs ID
+        :param token: The teachers session token
+        :return: None
+        """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, True):
+            self.connection.commit()
+            raise AuthorizationFailedException(username, user_id, None, True)
+        if not self.is_owner(song_id, user_id):
+            self.connection.commit()
+            raise AccessDeniedException("Song", song_id, user_id, True)
+        self.cursor.execute("DELETE FROM student_song_rels WHERE song_id = %s", (song_id,))
+        self.connection.commit()
 
     def fetch_shares_by_student(self, student_id: int, token: str) -> list:
         """
         A basic function to fetch all song shared with a student
-        :param student_id: The student's ID
-        :param token: The teacher's token
+        :param student_id: The students ID
+        :param token: The teachers token
         :return: A list (int) of all song IDs shared with the student
         """
         username = self.get_session_username(token)
@@ -551,17 +652,48 @@ class DatabaseConnection:
         if not self.authorize(username, token, True):
             self.connection.commit()
             raise AuthorizationFailedException(username, user_id, None, True)
-        if not self.check_is_student(student_id, user_id):
+        if not self.is_student(student_id, user_id):
             self.connection.commit()
             raise StudentNotFoundException(student_id, user_id)
         song_ids = self.__fetch_many("student_song_rels", 0, None, "song_id", student_id=student_id)
-        song_ids = [song_id for song_id in song_ids if self.is_owner(song_id, user_id)]
+        song_ids = filter(lambda song_id: self.is_owner(song_id, user_id), song_ids)
+        self.connection.commit()
         return song_ids
 
     def fetch_shares_by_song(self, song_id: int, token: str) -> list:
         """
         A basic function to fetch all students a song was shared with
-        :param song_id: The song's ID
-        :param token: The teacher's session token
+        :param song_id: The songs ID
+        :param token: The teachers session token
         :return: A list (int) of all student IDs the song was shared with
         """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, True):
+            self.connection.commit()
+            raise AuthorizationFailedException(username, user_id, None, True)
+        if not self.is_owner(song_id, user_id):
+            self.connection.commit()
+            raise AccessDeniedException("Song", song_id, user_id, True)
+        student_ids = self.__fetch_many("student_song_rels", 0, None, "student_id", song_id=song_id)
+        student_ids = filter(lambda student_id: self.is_student(student_id, user_id), student_ids)
+        self.connection.commit()
+        return student_ids
+
+    def fetch_shares(self, token: str) -> dict:
+        """
+        A basic function to fetch all song shares of a teacher
+        :param token: The teachers session token
+        :return: A dict (int, list) of all song_ids and student_ids
+        """
+        username = self.get_session_username(token)
+        user_id = self.get_user_id(username)
+        if not self.authorize(username, token, True):
+            self.connection.commit()
+            raise AuthorizationFailedException(username, user_id, None, True)
+        songs = self.fetch_available_songs(token).keys()
+        result = {}
+        for song_id in songs:
+            result[song_id] = self.fetch_shares_by_song(song_id, token)
+        self.connection.commit()
+        return result
