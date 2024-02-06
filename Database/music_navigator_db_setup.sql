@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users(
 	user_id SERIAL PRIMARY KEY NOT NULL,
 	username varchar UNIQUE NOT NULL,
 	password varchar NOT NULL,
-	salt char(32) UNIQUE NOT NULL,
+	salt char(64) UNIQUE NOT NULL,
 	is_teacher bool NOT NULL
 );
 
