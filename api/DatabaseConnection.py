@@ -5,7 +5,7 @@ import bcrypt
 import secrets
 import base64
 
-from Exceptions.Database import *
+from .Exceptions.Database import *
 
 
 class DatabaseConnection:
